@@ -27,7 +27,6 @@ from thumbscrews.tbestate import tbestate
 @click.option('--user-agent', '-a', help='The User-Agent to use (Otherwise uses "thumbscr-ews/0.0.1").')
 @click.option('--outlook-agent', '-o', is_flag=True,
               help='Set the User-Agent to an Outlook one (this is still a static value that can be fingerprinted).')
-# @click.option('--exchange', '-e', help='The exchange endpoint to use. eg: https://outlook.office365.com/EWS/Exchange.asmx')
 @click.option('--dump-config', is_flag=True, help='Dump the effective configuration used.')
 @click.option('--exch-host', help='If you dont want to try autodicover set the exchange host.')
 @click.option('--verbose', '-v', is_flag=True, help="Enables debugging information.")
@@ -47,9 +46,8 @@ def cli(config, username, password, dump_config, verbose, user_agent, outlook_ag
                              __version__ + " (" + BaseProtocol.USERAGENT + ")"
 
     if outlook_agent and user_agent:
-        click.secho(f'CANNOT USE TWO USERAGENTS AT ONCE!!!', fg='red')
-        click.secho(
-            f'Please use only --user-agent or --outlook-agent.', fg='red')
+        click.secho('CANNOT USE TWO USERAGENTS AT ONCE!!!', fg='red')
+        click.secho('Please use only --user-agent or --outlook-agent.', fg='red')
         quit()
 
     if outlook_agent:
@@ -140,11 +138,15 @@ def autodiscover(verbose):
 
         primary_address, protocol = discover(tbestate.username, credentials=credentials)
 
-        click.secho(f'Autodiscover results:', bold=True, fg='yellow')
+        click.secho('Autodiscover results:', bold=True, fg='yellow')
         click.secho(f'{primary_address.user}', fg='bright_green')
         click.secho(f'{protocol}', fg='bright_green')
     except exchangelib.errors.AutoDiscoverFailed:
-        click.secho(f'Autodiscover failed, try with -v for more information:', bold=True, fg='red')
+        click.secho(
+            'Autodiscover failed, try with -v for more information:',
+            bold=True,
+            fg='red',
+        )
 
 
 @cli.group()
@@ -176,33 +178,23 @@ def read(search, html, limit, folder, id, delegate):
 
     credentials = Credentials(tbestate.username, tbestate.password)
 
-    if delegate:
-        username = delegate
-    else:
-        username = tbestate.username
-
+    username = delegate or tbestate.username
     if tbestate.exch_host:
         config = Configuration(server=tbestate.exch_host, credentials=credentials)
         account = Account(username, config=config, autodiscover=False, access_type=DELEGATE)
     else:
         account = Account(username, credentials=credentials, autodiscover=True, access_type=DELEGATE)
 
-    if folder:
-        # pylint: disable=maybe-no-member
-        current_folder = account.root.glob(folder)
-    else:
-        current_folder = account.inbox
-
+    current_folder = account.root.glob(folder) if folder else account.inbox
     if search:
         # mails = account.inbox.filter(Q(body__icontains=search) | Q(subject__icontains=search))
         # mails = account.inbox.filter(Q(body__icontains=search))
         mails = current_folder.filter(search).order_by('-datetime_received')
+    elif id:
+        mails = [current_folder.get(
+            id=id)]
     else:
-        if id:
-            mails = [current_folder.get(
-                id=id)]
-        else:
-            mails = current_folder.all().order_by('-datetime_received')[:limit]
+        mails = current_folder.all().order_by('-datetime_received')[:limit]
 
     for item in mails:
         try:
@@ -216,7 +208,7 @@ def read(search, html, limit, folder, id, delegate):
             else:
                 click.secho(f'Body:\n\n{item.text_body}\n', fg='white')
             if item.has_attachments:
-                click.secho(f'Attachments:', fg='yellow', dim=True)
+                click.secho('Attachments:', fg='yellow', dim=True)
                 for attach in item.attachments:
                     click.secho(f'{attach.name} - {attach.content_type}', fg='bright_yellow', dim=True)
         except Exception as e:
@@ -244,11 +236,7 @@ def getattachments(id, folder, path, search, limit, delegate):
     credentials = Credentials(
         tbestate.username, tbestate.password)
 
-    if delegate:
-        username = delegate
-    else:
-        username = tbestate.username
-
+    username = delegate or tbestate.username
     if tbestate.exch_host:
         config = Configuration(server=tbestate.exch_host, credentials=credentials)
         account = Account(username,
@@ -257,21 +245,15 @@ def getattachments(id, folder, path, search, limit, delegate):
         account = Account(username,
                           credentials=credentials, autodiscover=True, access_type=DELEGATE)
 
-    if folder:
-        # pylint: disable=maybe-no-member
-        current_folder = account.root.glob(folder)
-    else:
-        current_folder = account.inbox
-
+    current_folder = account.root.glob(folder) if folder else account.inbox
     if search:
         # mails = account.inbox.filter(Q(body__icontains=search) | Q(subject__icontains=search))
         # mails = account.inbox.filter(Q(body__icontains=search))
         mails = current_folder.filter(search).order_by('-datetime_received')
+    elif id:
+        mails = [current_folder.get(id=id)]
     else:
-        if id:
-            mails = [current_folder.get(id=id)]
-        else:
-            mails = current_folder.all().order_by('-datetime_received')[:limit]
+        mails = current_folder.all().order_by('-datetime_received')[:limit]
 
     if not path:
         path = os.getcwd()
@@ -286,13 +268,10 @@ def getattachments(id, folder, path, search, limit, delegate):
             click.secho(f'IDHash: {uniqifiyer}\n', fg='bright_magenta')
             for attachment in item.attachments:
                 if isinstance(attachment, FileAttachment):
-                    local_path = os.path.join(
-                        path, uniqifiyer + '-' + attachment.name)
+                    local_path = os.path.join(path, f'{uniqifiyer}-{attachment.name}')
                     with open(local_path, 'wb') as f, attachment.fp as fp:
-                        buffer = fp.read(1024)
-                        while buffer:
+                        while buffer := fp.read(1024):
                             f.write(buffer)
-                            buffer = fp.read(1024)
                     click.secho(
                         f'Saved attachment to {local_path}', fg='green')
         except Exception as e:
@@ -304,8 +283,6 @@ def getattachments(id, folder, path, search, limit, delegate):
 @cli.command()
 @click.option('--search', '-s', help='Search pattern to glob on. eg "Top of Information Store*"')
 @click.option('--delegate', '-d', help='Read a different persons mailbox you have access to')
-# @click.option('--html', is_flag=True, help='Retrieve the HTML version of mails, default is text.')
-# @click.option('--limit', '-l', type=click.INT, help='Limit the results returned to the most recent <amount>')
 def folders(search, delegate):
     """
         Print exchange file structure.
@@ -313,11 +290,7 @@ def folders(search, delegate):
     credentials = Credentials(
         tbestate.username, tbestate.password)
 
-    if delegate:
-        username = delegate
-    else:
-        username = tbestate.username
-
+    username = delegate or tbestate.username
     if tbestate.exch_host:
         config = Configuration(server=tbestate.exch_host, credentials=credentials)
         account = Account(username, config=config, autodiscover=False, access_type=DELEGATE)
@@ -353,23 +326,14 @@ def objects(limit, folder, delegate):
 
     credentials = Credentials(tbestate.username, tbestate.password)
 
-    if delegate:
-        username = delegate
-    else:
-        username = tbestate.username
-
+    username = delegate or tbestate.username
     if tbestate.exch_host:
         config = Configuration(server=tbestate.exch_host, credentials=credentials)
         account = Account(username, config=config, autodiscover=False, access_type=DELEGATE)
     else:
         account = Account(username, credentials=credentials, autodiscover=True, access_type=DELEGATE)
 
-    if folder:
-        # pylint: disable=maybe-no-member
-        current_folder = account.root.glob(folder)
-    else:
-        current_folder = account.inbox
-
+    current_folder = account.root.glob(folder) if folder else account.inbox
     mails = current_folder.all()[:limit]
 
     for item in mails:
@@ -470,18 +434,22 @@ def delegatecheck(email_list, verbose, full_tree, folder):
                         f'[-] Failure {email} - No folder found', dim=True, fg='red')
                 else:
                     for current_folder in delegate_account.root.glob(folder):
-                        pl = []
-                        for p in current_folder.permission_set.permissions:
-                            if p.permission_level != "None":
-                                pl.append(p.permission_level)
+                        pl = [
+                            p.permission_level
+                            for p in current_folder.permission_set.permissions
+                            if p.permission_level != "None"
+                        ]
+
                         click.secho(
                             f'[+] Success {email} - Could access {current_folder} - Permissions: {pl}', fg='green')
             else:
                 #delegate_account.inbox
-                pl = []
-                for p in delegate_account.inbox.permission_set.permissions:
-                    if p.permission_level != "None":
-                        pl.append(p.permission_level)
+                pl = [
+                    p.permission_level
+                    for p in delegate_account.inbox.permission_set.permissions
+                    if p.permission_level != "None"
+                ]
+
                 click.secho(
                     f'[+] Success {email} - Could access inbox - Permissions: {pl}', fg='green')
         except exchangelib.errors.ErrorItemNotFound:
@@ -501,11 +469,7 @@ def delegatecheck(email_list, verbose, full_tree, folder):
 
 @cli.command(no_args_is_help=True)
 @click.option('--userfile', '-U', type=click.Path(exists=True), help='File containing all the user email addresses')
-# @click.option('--passfile', '-P', type=click.Path(exists=True), help='File containing all the passwords to try')
-# @click.option('--username', '-u', help='The user email to try against.')
 @click.option('--password', '-p', help='The password to try against users.')
-# @click.option('--user-agents', type=click.Path(exists=True), help='A list of user agents to randomly choose from per attempt.')
-# @click.option('--jitter', '-j', help='A time range to wait for after every attempt.')
 @click.option('--verbose', '-v', is_flag=True, help='This gives more information.')
 def brute(verbose, userfile, password):
     """
@@ -519,7 +483,10 @@ def brute(verbose, userfile, password):
 
     if not tbestate.exch_host:
         click.secho(
-            f'[*] Set an exchange host for a faster bruting experience', fg='yellow')
+            '[*] Set an exchange host for a faster bruting experience',
+            fg='yellow',
+        )
+
 
     usernames = open(userfile, "r")
 
